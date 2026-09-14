@@ -2478,23 +2478,23 @@ class PetWindow(QWidget, WindowFeatureGateMixin):
                 return
             self._music_sing_active = False
         if name == self.drag and self._dragging:
-            self._push_recycle(self.movie)  # 批11-B1 P2-2：拖拽重启不经 _switch，补推送
-            self.movie.jumpToFrame(0)
+            # Drag is a continuous looping state.
+            # Do NOT jumpToFrame(0) here:
+            # WebMClip.start() will re-arm the already parked ffmpeg reader.
+            self._push_recycle(self.movie)
             self._ended_fired = False
+
             if self.movie.start() is False:
-                # 拖拽动画也被拒（退役池卡死）：回退可播放动画并安排重试，
-                # 不让拖拽状态停在"无动画在播"（B7 审查 P1-1）
                 self._fallback_playable_idle(name)
                 self._schedule_switch_retry(name)
                 return
-            # 拖拽动画直接重启成功：仅当待重试的正是本动画时清除待重试
-            # （与 _switch 同一身份绑定语义，B7 复审 R2——无关动画的
-            # 成功启动不得吞掉其他动画的待重试）。
+
             if self._pending_switch == name:
                 self._pending_switch = None
                 self._pending_switch_link = False
                 self._switch_retry_count = 0
                 self._switch_retry_timer.stop()
+
             return
         # 弹射飞行途中不推进随机动画链（实测定案：弹射切换是事件驱动，
         # 预测式预热覆盖不到——拖拽打断早已作废预测代次，松手/半空的现场
@@ -2519,7 +2519,6 @@ class PetWindow(QWidget, WindowFeatureGateMixin):
                 self._switch(flight)
                 return
             self._push_recycle(self.movie)  # 同拖拽重启：不经 _switch，补推送
-            self.movie.jumpToFrame(0)
             self._ended_fired = False
             if self.movie.start() is False:
                 self._fallback_playable_idle(name)
