@@ -2549,7 +2549,15 @@ class PetWindow(QWidget, WindowFeatureGateMixin):
                 return
         skip_facing = getattr(self, '_effects_skip_turn_facing', None)
         if name in self.turns and not (callable(skip_facing) and skip_facing()):
-            self.facing = 'right' if self.facing == 'left' else 'left'
+            # Directional turn assets own their visual direction and must not be
+            # followed by the legacy blind facing toggle.  Keep the old toggle
+            # as a fallback for existing character packs.
+            if name == 'turn_left':
+                self.facing = 'left'
+            elif name == 'turn_right':
+                self.facing = 'right'
+            else:
+                self.facing = 'right' if self.facing == 'left' else 'left'
         if name == self.drag or name in self.clicks:
             self._cancel_animation_gap()
             if name in self.clicks:
