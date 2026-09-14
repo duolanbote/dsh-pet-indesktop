@@ -7,8 +7,8 @@
   - 每个动画一次性播放，播完按概率选下一个：30% 待机 / 10% 转向 / 40% 动作 / 20% 移动；
   - 转向（东张西望）播完翻转朝向；facing=right 时水平镜像；
   - 点击回应 / 拖拽动画播完先回待机缓冲，待机播完再进随机链；
-  - 移动：动画只提供"走路姿态"（3 选 1），位置由 QTimer 驱动，
-    开头/结尾各 2s 不动，中间按播放进度插值；
+  - 移动：动画提供起步/走路/收步姿态，位置由 QTimer 驱动；
+    长素材保留前后各 2s 缓冲，短素材自动缩短缓冲，中间按播放进度插值；
   - 透明区域鼠标穿透：非 Windows 每帧按当前帧 alpha 生成窗口 mask；Windows 改走逐像素 WS_EX_TRANSPARENT（platform_win），mask 只用于算 _mask_bounds。
 """
 
@@ -644,7 +644,6 @@ class PetWindow(QWidget, WindowFeatureGateMixin):
         # ---- 移动驱动 ----
         self._move_plan: dict | None = None
         self._move_timer = QTimer(self)
-        self._move_timer.setInterval(33)         # ~30fps 位置插值
         self._move_timer.timeout.connect(self._on_move_tick)
 
         # ---- 交互节拍跟随屏幕刷新率 ----
@@ -658,6 +657,11 @@ class PetWindow(QWidget, WindowFeatureGateMixin):
         if not _refresh > 30.0:  # 读取失败/异常值兜底
             _refresh = 60.0
         _tick_ms = max(4, round(1000.0 / _refresh)) if _refresh > 90.0 else 16
+
+        # 移动窗口与屏幕刷新节拍对齐；固定 33ms (~30fps) 在 60/120/165Hz
+        # 显示器上都会产生可见的步进抖动。与物理/Q 弹路径统一使用精确定时器。
+        self._move_timer.setInterval(_tick_ms)
+        self._move_timer.setTimerType(Qt.TimerType.PreciseTimer)
 
         # ---- 点击 Q 弹效果 ----
         self._squash_timer = QTimer(self)
@@ -2758,8 +2762,15 @@ class PetWindow(QWidget, WindowFeatureGateMixin):
             self._move_timer.stop()
             return
         t = self.movie.currentTimeSeconds()
-        lead, tail = catalog.MOVE_LEAD_SEC, catalog.MOVE_TAIL_SEC
         dur = plan['duration']
+        lead, tail = catalog.MOVE_LEAD_SEC, catalog.MOVE_TAIL_SEC
+        # 短移动素材（例如 5s 的「站姿→走路→站姿」）若仍固定前后各 2s，
+        # 实际位移会被压缩到约 1s，窗口看起来像突然冲过去。仅当默认前后缓冲
+        # 已占到素材一半以上时，把两侧缓冲各限制到素材时长的 10%；长素材
+        # 继续保留历史的 2s/2s 行为。
+        if dur > 0 and lead + tail >= dur * 0.5:
+            lead = min(lead, dur * 0.10)
+            tail = min(tail, dur * 0.10)
         if t <= lead:
             x = plan['start_x']
             y = plan['start_y']
